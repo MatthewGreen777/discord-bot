@@ -22,7 +22,7 @@ module.exports = {
 
         // User and server-specific stats
         const username = targetUser.username;
-        const nickname = targetMember.nickname || 'No nickname';
+        let nickname = targetMember.nickname || targetMember.displayName || 'No nickname';
         const accountCreationDate = format(targetUser.createdAt, 'yyyy-MM-dd');
         const serverJoinDate = format(targetMember.joinedAt, 'yyyy-MM-dd');
         const roles = targetMember.roles.cache
