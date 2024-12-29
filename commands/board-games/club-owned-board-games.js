@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const axios = require('axios');
 const { parseStringPromise } = require('xml2js');
-const config = require('../../config.json'); // Adjusted path to reach the config file
+const config = require('../../config.json'); 
 
 module.exports = {
     data: new SlashCommandBuilder()
