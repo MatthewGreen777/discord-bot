@@ -24,6 +24,3 @@ We welcome contributions to enhance the bot’s functionality. Please fork the r
 
 ## Support
 If you encounter any issues or have questions, please contact the club’s technical team or open an issue on the GitHub repository.
-
-## License
-This project is licensed under the MIT License. See the LICENSE file for details.
