@@ -5,7 +5,7 @@ const config = require('../../config.json');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('clubgames')
+        .setName('club-games')
         .setDescription('Lists games owned by club on BoardGameGeek.'),
     async execute(interaction) {
         const username = config.BGG_USERNAME;
