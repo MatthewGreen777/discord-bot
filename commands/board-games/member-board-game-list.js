@@ -74,7 +74,7 @@ module.exports = {
                 const embedContent = pageGames.map((game, index) => `${start + index + 1}. ${game}`).join('\n');
 
                 return {
-                    content: `**Games owned by Club**\n${embedContent}\n\nPage ${page + 1} of ${Math.ceil(games.length / ITEMS_PER_PAGE)}`,
+                    content: `**Games owned by ${username}**\n${embedContent}\n\nPage ${page + 1} of ${Math.ceil(games.length / ITEMS_PER_PAGE)}`,
                     components: [
                         new ActionRowBuilder().addComponents(
                             new ButtonBuilder()
