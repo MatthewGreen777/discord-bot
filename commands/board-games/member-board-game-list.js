@@ -9,7 +9,7 @@ const filePath = path.join(__dirname, 'member-board-games.csv');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('listgames')
+        .setName('list-member-games')
         .setDescription('Retrieve a list of board games owned by a user.')
         .addUserOption(option =>
             option

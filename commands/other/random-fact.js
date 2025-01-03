@@ -4,7 +4,7 @@ const path = require('node:path');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('randomfact')
+        .setName('random-fact')
         .setDescription('Get a random fact from the list!'),
     async execute(interaction) {
         try {
