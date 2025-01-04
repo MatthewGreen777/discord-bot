@@ -4,7 +4,7 @@ const { parseStringPromise } = require('xml2js');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('search-board-game')
+        .setName('searchboardgame')
         .setDescription('Search for a board game and get its details.')
         .addStringOption(option =>
             option.setName('name')
@@ -27,54 +27,64 @@ module.exports = {
                 return interaction.editReply(`No board games found with the name "${gameName}".`);
             }
 
-            // Limit the search results to 20 items
-            const limitedItems = searchData.items.item.slice(0, 20);
-            const gameIds = limitedItems.map(item => item.$.id).join(',');
+            // Limit the total results to 100 and process in batches of 20
+            const totalItems = searchData.items.item.slice(0, 100);
+            const batchSize = 20;
 
-            // Retrieve detailed data for the limited matching games
-            const detailsResponse = await axios.get(`https://boardgamegeek.com/xmlapi2/thing?id=${gameIds}&stats=1`);
-            const detailsData = await parseStringPromise(detailsResponse.data);
+            const games = [];
+            for (let i = 0; i < totalItems.length; i += batchSize) {
+                const batch = totalItems.slice(i, i + batchSize);
+                const gameIds = batch.map(item => item.$.id).join(',');
 
-            // Extract and prioritize games by popularity (rank)
-            const games = detailsData.items.item.map(item => {
-                const name = item.name.find(n => n.$.type === 'primary').$.value;
-                const yearPublished = item.yearpublished ? item.yearpublished[0].$.value : 'Unknown';
-                const ratings = item.statistics[0].ratings[0];
-                const rank = ratings.ranks[0].rank.find(r => r.$.type === 'subtype' && r.$.value !== 'Not Ranked');
-                const playtime = item.playingtime ? item.playingtime[0].$.value : 'Unknown';
-                const weight = ratings.averageweight ? parseFloat(ratings.averageweight[0].$.value) : 'Unknown';
+                // Retrieve detailed data for the current batch
+                const detailsResponse = await axios.get(`https://boardgamegeek.com/xmlapi2/thing?id=${gameIds}&stats=1`);
+                const detailsData = await parseStringPromise(detailsResponse.data);
 
-                return {
-                    name,
-                    yearPublished,
-                    rank: rank ? parseInt(rank.$.value, 10) : Infinity, // Higher numbers are less popular
-                    numRatings: parseInt(ratings.usersrated[0].$.value, 10),
-                    averageRating: parseFloat(ratings.average[0].$.value),
-                    playtime,
-                    weight,
-                };
-            });
+                // Extract games data
+                const batchGames = detailsData.items.item.map(item => {
+                    const name = item.name.find(n => n.$.type === 'primary').$.value;
+                    const yearPublished = item.yearpublished ? item.yearpublished[0].$.value : 'Unknown';
+                    const ratings = item.statistics[0].ratings[0];
+                    const rank = ratings.ranks[0].rank.find(r => r.$.type === 'subtype' && r.$.value !== 'Not Ranked');
+                    const numRatings = parseInt(ratings.usersrated[0].$.value, 10);
+                    const averageRating = parseFloat(ratings.average[0].$.value);
+                    const playtime = item.playingtime ? item.playingtime[0].$.value : 'Unknown';
+                    const weight = ratings.averageweight ? parseFloat(ratings.averageweight[0].$.value) : 'Unknown';
 
-            // Find the most popular game (lowest rank value)
-            const mostPopularGame = games.reduce((mostPopular, game) => {
-                return game.rank < mostPopular.rank ? game : mostPopular;
+                    return {
+                        name,
+                        yearPublished,
+                        rank: rank ? parseInt(rank.$.value, 10) : Infinity,
+                        numRatings,
+                        averageRating,
+                        playtime,
+                        weight,
+                    };
+                });
+
+                games.push(...batchGames);
+            }
+
+            // Find the game with the most ratings (votes)
+            const mostVotedGame = games.reduce((mostVoted, game) => {
+                return game.numRatings > mostVoted.numRatings ? game : mostVoted;
             });
 
             // Reply with the most popular game's details
             await interaction.editReply(
-                `**${mostPopularGame.name}**
+                `**${mostVotedGame.name}**
 ` +
-                `- Year Published: ${mostPopularGame.yearPublished}
+                `- Year Published: ${mostVotedGame.yearPublished}
 ` +
-                `- Popularity Rank: ${mostPopularGame.rank}
+                `- Popularity Rank: ${mostVotedGame.rank === Infinity ? 'Not Ranked' : mostVotedGame.rank}
 ` +
-                `- Number of Ratings: ${mostPopularGame.numRatings}
+                `- Number of Ratings: ${mostVotedGame.numRatings}
 ` +
-                `- Average Rating: ${mostPopularGame.averageRating.toFixed(2)}
+                `- Average Rating: ${mostVotedGame.averageRating.toFixed(2)}
 ` +
-                `- Average Playtime: ${mostPopularGame.playtime} minutes
+                `- Average Playtime: ${mostVotedGame.playtime} minutes
 ` +
-                `- Weight (Complexity): ${mostPopularGame.weight === 'Unknown' ? 'Unknown' : mostPopularGame.weight.toFixed(2)} / 5
+                `- Weight (Complexity): ${mostVotedGame.weight === 'Unknown' ? 'Unknown' : mostVotedGame.weight.toFixed(2)} / 5
 `
             );
         } catch (error) {
