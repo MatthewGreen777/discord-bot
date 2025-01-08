@@ -15,10 +15,18 @@ module.exports = {
             const fileContent = fs.readFileSync(filePath, 'utf8');
 
             // Split the file into lines
-            const facts = fileContent.split('\n').filter(line => line.trim() !== '');
+            const facts = fileContent
+                .split('\n')
+                .map(line => line.trim()) // Trim whitespace and newline characters
+                .filter(line => line !== ''); // Exclude empty lines
 
             // Get a random fact
-            const randomFact = facts[Math.floor(Math.random() * facts.length)];
+            let randomFact = facts[Math.floor(Math.random() * facts.length)];
+
+            // Remove the first and last characters if they are both quotation marks
+            if (randomFact.startsWith('"') && randomFact.endsWith('"')) {
+                randomFact = randomFact.slice(1, -1).trim(); // Remove quotes and trim again
+            }
 
             // Reply with the random fact
             await interaction.reply(randomFact);
