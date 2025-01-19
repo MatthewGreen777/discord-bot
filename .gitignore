@@ -7,5 +7,5 @@ configs/*.json
 node_modules/
 DisccordBot.pem
 member-board-games.csv
-events.csv
-upcoming-events.csv
+C:\Documents\discord-bot\commands\board-games\member-board-games.csv
+C:\Documents\discord-bot\commands\utility\upcoming-events.csv
