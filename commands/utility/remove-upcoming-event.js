@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
@@ -11,18 +11,27 @@ module.exports = {
         .addStringOption(option =>
             option.setName('title')
                 .setDescription('The title of the event to remove')
-                .setRequired(true)),
+                .setRequired(true))
+        .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageRoles) // Only visible to users with specific permissions
+        .setDMPermission(false), // Disable use in DMs
     async execute(interaction) {
         const clubOfficerRole = interaction.guild.roles.cache.find(role => role.name === 'Club Officer');
 
+        // Check if the user has the required role
         if (!clubOfficerRole || !interaction.member.roles.cache.has(clubOfficerRole.id)) {
-            return interaction.reply('You do not have permission to use this command. Only Club Officers can remove events.');
+            return interaction.reply({
+                content: 'You do not have permission to use this command. Only Club Officers can remove events.',
+                ephemeral: true, // Makes the reply visible only to the user
+            });
         }
 
         const title = interaction.options.getString('title');
 
         if (!fs.existsSync(FILE_PATH)) {
-            return interaction.reply('No events found.');
+            return interaction.reply({
+                content: 'No events found.',
+                ephemeral: true,
+            });
         }
 
         const data = fs.readFileSync(FILE_PATH, 'utf-8');
@@ -37,7 +46,10 @@ module.exports = {
         const filteredEvents = events.filter(event => event.title.toLowerCase() !== title.toLowerCase());
 
         if (events.length === filteredEvents.length) {
-            return interaction.reply(`No event with the title "${title}" was found.`);
+            return interaction.reply({
+                content: `No event with the title "${title}" was found.`,
+                ephemeral: true,
+            });
         }
 
         const csvData = filteredEvents.map(event => `${event.title},${event.date.toISOString()}`).join('\n');

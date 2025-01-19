@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
@@ -15,12 +15,18 @@ module.exports = {
         .addStringOption(option =>
             option.setName('date')
                 .setDescription('The date of the event (YYYY-MM-DD)')
-                .setRequired(true)),
+                .setRequired(true))
+        .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageRoles) // Only allow users with "Manage Roles" or equivalent
+        .setDMPermission(false), // Disable use in DMs
     async execute(interaction) {
         const clubOfficerRole = interaction.guild.roles.cache.find(role => role.name === 'Club Officer');
 
+        // Check if the user has the required role
         if (!clubOfficerRole || !interaction.member.roles.cache.has(clubOfficerRole.id)) {
-            return interaction.reply('You do not have permission to use this command. Only Club Officers can add events.');
+            return interaction.reply({
+                content: 'You do not have permission to use this command. Only Club Officers can add events.',
+                ephemeral: true, // Makes the reply visible only to the user
+            });
         }
 
         const title = interaction.options.getString('title');
@@ -28,7 +34,10 @@ module.exports = {
         const date = new Date(dateInput);
 
         if (isNaN(date.getTime())) {
-            return interaction.reply('Invalid date format. Please use YYYY-MM-DD.');
+            return interaction.reply({
+                content: 'Invalid date format. Please use YYYY-MM-DD.',
+                ephemeral: true,
+            });
         }
 
         let events = [];
