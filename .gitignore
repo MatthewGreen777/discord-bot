@@ -6,6 +6,5 @@ package.json
 configs/*.json
 node_modules/
 DisccordBot.pem
-member-board-games.csv
-C:\Documents\discord-bot\commands\board-games\member-board-games.csv
-C:\Documents\discord-bot\commands\utility\upcoming-events.csv
+commands/board-games/member-board-games.csv
+commands/utility/upcoming-events.csv
