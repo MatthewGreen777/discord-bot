@@ -7,3 +7,4 @@ configs/*.json
 node_modules/
 DisccordBot.pem
 member-board-games.csv
+events.csv
