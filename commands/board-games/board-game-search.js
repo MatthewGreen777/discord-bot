@@ -4,7 +4,7 @@ const { parseStringPromise } = require('xml2js');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('searchboardgame')
+        .setName('search-board-game')
         .setDescription('Search for a board game and get its details.')
         .addStringOption(option =>
             option.setName('name')
