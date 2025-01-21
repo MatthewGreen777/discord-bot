@@ -11,7 +11,7 @@ module.exports = {
                 .setDescription('The title of the event to remove.')
                 .setRequired(true)),
     async execute(interaction) {
-        const clubOfficerRole = interaction.guild.roles.cache.find(role => role.name === 'Club Officers');
+        const clubOfficerRole = interaction.guild.roles.cache.find(role => role.name === 'Club Officer');
 
         // Check if the user has the required role
         if (!clubOfficerRole || !interaction.member.roles.cache.has(clubOfficerRole.id)) {
