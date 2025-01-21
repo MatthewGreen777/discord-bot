@@ -1,38 +1,37 @@
-const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-
-const FILE_PATH = path.join(__dirname, 'upcoming-events.csv');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('add-upcoming-events')
-        .setDescription('Add a new upcoming event (Club Officers Only)')
+        .setDescription('Add a new event to the list. (Club Officers Only)')
         .addStringOption(option =>
             option.setName('title')
-                .setDescription('The title of the event')
+                .setDescription('The title of the event.')
                 .setRequired(true))
         .addStringOption(option =>
             option.setName('date')
-                .setDescription('The date of the event (YYYY-MM-DD)')
-                .setRequired(true))
-        .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageRoles) // Only allow users with "Manage Roles" or equivalent
-        .setDMPermission(false), // Disable use in DMs
+                .setDescription('The date of the event (YYYY-MM-DD).')
+                .setRequired(true)),
     async execute(interaction) {
-        const clubOfficerRole = interaction.guild.roles.cache.find(role => role.name === 'Club Officer');
+        const clubOfficerRole = interaction.guild.roles.cache.find(role => role.name === 'Club Officers');
 
         // Check if the user has the required role
         if (!clubOfficerRole || !interaction.member.roles.cache.has(clubOfficerRole.id)) {
             return interaction.reply({
                 content: 'You do not have permission to use this command. Only Club Officers can add events.',
-                ephemeral: true, // Makes the reply visible only to the user
+                ephemeral: true, // Only visible to the user
             });
         }
 
+        const guildId = interaction.guild.id;
+        const filePath = path.join(__dirname, `upcoming-events-${guildId}.csv`);
         const title = interaction.options.getString('title');
         const dateInput = interaction.options.getString('date');
         const date = new Date(dateInput);
 
+        // Validate the date input
         if (isNaN(date.getTime())) {
             return interaction.reply({
                 content: 'Invalid date format. Please use YYYY-MM-DD.',
@@ -40,9 +39,10 @@ module.exports = {
             });
         }
 
+        // Read and parse existing events
         let events = [];
-        if (fs.existsSync(FILE_PATH)) {
-            const data = fs.readFileSync(FILE_PATH, 'utf-8');
+        if (fs.existsSync(filePath)) {
+            const data = fs.readFileSync(filePath, 'utf-8');
             events = data
                 .trim()
                 .split('\n')
@@ -53,12 +53,14 @@ module.exports = {
                 .filter(event => event.date >= new Date());
         }
 
+        // Add the new event and sort the list by date
         events.push({ title, date });
         events.sort((a, b) => new Date(a.date) - new Date(b.date));
 
+        // Write the updated list back to the file
         const csvData = events.map(event => `${event.title},${event.date.toISOString()}`).join('\n');
-        fs.writeFileSync(FILE_PATH, csvData);
+        fs.writeFileSync(filePath, csvData);
 
-        interaction.reply(`Event "${title}" on ${dateInput} has been added.`);
+        interaction.reply(`Event "${title}" on ${date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} has been added.`);
     },
 };
