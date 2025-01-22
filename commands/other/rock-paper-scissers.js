@@ -25,7 +25,7 @@ module.exports = {
 
         const userChoice = validChoices[userChoiceInput];
 
-        // Read the CSV file and calculate the most common win condition
+        // Read the CSV file and calculate the best counter-choice
         const data = [];
         if (fs.existsSync(filePath)) {
             fs.createReadStream(filePath)
@@ -36,7 +36,7 @@ module.exports = {
                     scissors: parseInt(row.scissors, 10) || 0,
                 }))
                 .on('end', () => {
-                    // Calculate most common win condition
+                    // Calculate weighted probabilities
                     const choices = data.reduce((acc, row) => {
                         acc.rock += row.rock;
                         acc.paper += row.paper;
@@ -44,8 +44,24 @@ module.exports = {
                         return acc;
                     }, { rock: 0, paper: 0, scissors: 0 });
 
-                    const mostCommonChoice = Object.entries(choices).reduce((max, entry) => entry[1] > max[1] ? entry : max, ['rock', 0])[0];
-                    const botChoice = { rock: 'paper', paper: 'scissors', scissors: 'rock' }[mostCommonChoice]; // Pick to win against the most common
+                    const total = choices.rock + choices.paper + choices.scissors;
+                    const probabilities = {
+                        rock: choices.rock / total || 1 / 3,
+                        paper: choices.paper / total || 1 / 3,
+                        scissors: choices.scissors / total || 1 / 3,
+                    };
+
+                    // Select the bot's choice based on probabilities
+                    const weightedChoices = {
+                        rock: probabilities.scissors, // Scissors loses to rock
+                        paper: probabilities.rock,    // Rock loses to paper
+                        scissors: probabilities.paper // Paper loses to scissors
+                    };
+
+                    const botChoice = Object.entries(weightedChoices).reduce(
+                        (max, entry) => entry[1] > max[1] ? entry : max,
+                        ['rock', 0]
+                    )[0];
 
                     // Determine the result
                     let result;
