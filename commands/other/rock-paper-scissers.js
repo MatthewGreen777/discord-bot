@@ -25,7 +25,7 @@ module.exports = {
 
         const userChoice = validChoices[userChoiceInput];
 
-        // Read the CSV file and calculate the best counter-choice
+        // Read the CSV file and calculate weighted probabilities
         const data = [];
         if (fs.existsSync(filePath)) {
             fs.createReadStream(filePath)
@@ -36,7 +36,6 @@ module.exports = {
                     scissors: parseInt(row.scissors, 10) || 0,
                 }))
                 .on('end', () => {
-                    // Calculate weighted probabilities
                     const choices = data.reduce((acc, row) => {
                         acc.rock += row.rock;
                         acc.paper += row.paper;
@@ -44,24 +43,37 @@ module.exports = {
                         return acc;
                     }, { rock: 0, paper: 0, scissors: 0 });
 
-                    const total = choices.rock + choices.paper + choices.scissors;
+                    const total = choices.rock + choices.paper + choices.scissors || 1; // Avoid division by zero
                     const probabilities = {
-                        rock: choices.rock / total || 1 / 3,
-                        paper: choices.paper / total || 1 / 3,
-                        scissors: choices.scissors / total || 1 / 3,
+                        rock: choices.rock / total,
+                        paper: choices.paper / total,
+                        scissors: choices.scissors / total,
                     };
 
-                    // Select the bot's choice based on probabilities
-                    const weightedChoices = {
-                        rock: probabilities.scissors, // Scissors loses to rock
-                        paper: probabilities.rock,    // Rock loses to paper
-                        scissors: probabilities.paper // Paper loses to scissors
+                    // Calculate weighted counter-choice probabilities
+                    const weightedCounters = {
+                        rock: probabilities.scissors,  // Scissors loses to rock
+                        paper: probabilities.rock,     // Rock loses to paper
+                        scissors: probabilities.paper  // Paper loses to scissors
                     };
 
-                    const botChoice = Object.entries(weightedChoices).reduce(
-                        (max, entry) => entry[1] > max[1] ? entry : max,
-                        ['rock', 0]
-                    )[0];
+                    // Normalize the weights to ensure they sum to 1
+                    const totalWeight = Object.values(weightedCounters).reduce((sum, weight) => sum + weight, 0);
+                    for (const choice in weightedCounters) {
+                        weightedCounters[choice] /= totalWeight;
+                    }
+
+                    // Select the bot's choice based on weighted probabilities
+                    const random = Math.random();
+                    let cumulativeProbability = 0;
+                    let botChoice;
+                    for (const [choice, weight] of Object.entries(weightedCounters)) {
+                        cumulativeProbability += weight;
+                        if (random < cumulativeProbability) {
+                            botChoice = choice;
+                            break;
+                        }
+                    }
 
                     // Determine the result
                     let result;
