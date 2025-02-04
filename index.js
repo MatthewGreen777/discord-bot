@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, Events, GatewayIntentBits, MessageFlags } = require('discord.js');
+const { scheduleSongOfTheDay } = require('./commands/utility/song-of-the-day');
 require('dotenv').config(); // Load .env variables
 
 const token = process.env.DISCORD_TOKEN;
@@ -54,6 +55,11 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.reply({ content: 'There was an error while executing this command!', flags: MessageFlags.Ephemeral });
         }
     }
+});
+
+client.once('ready', () => {
+    console.log(`Logged in as ${client.user.tag}!`);
+    scheduleSongOfTheDay(client); // Pass client here
 });
 
 client.login(token);
