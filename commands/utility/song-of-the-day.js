@@ -46,7 +46,7 @@ function addOrUpdateSong(guildId, date, songUrl) {
 
 // Scheduled job to send the song of the day
 function scheduleSongOfTheDay(client) {
-    schedule.scheduleJob('5 6 * * *', async function () {
+    schedule.scheduleJob('10 6 * * *', async function () {
         for (const guild of [...client.guilds.cache.values()]) {
             const guildId = guild.id;
             const filePath = getServerCSVPath(guildId);
