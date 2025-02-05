@@ -63,7 +63,7 @@ function scheduleSongOfTheDay(client) {
                 // Find the "song-of-the-day" channel
                 const channel = guild.channels.cache.find(ch => ch.name === 'song-of-the-day');
                 if (channel) {
-                    channel.send(`${formattedDate}\n${songUrl}`);
+                    channel.send(`${formattedDate}\n${songUrl} .`);
                 }
             }
         }
