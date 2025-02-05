@@ -46,7 +46,7 @@ function addOrUpdateSong(guildId, date, songUrl) {
 
 // Scheduled job to send the song of the day
 function scheduleSongOfTheDay(client) {
-    schedule.scheduleJob('0 5 * * *', async function () {
+    schedule.scheduleJob('5 6 * * *', async function () {
         for (const guild of [...client.guilds.cache.values()]) {
             const guildId = guild.id;
             const filePath = getServerCSVPath(guildId);
@@ -105,7 +105,7 @@ module.exports = {
 
         // Save or update the song
         addOrUpdateSong(guildId, date, songUrl);
-        return interaction.reply({ content: `✅ The song has been set for **${date}**! (Overwriting if necessary)`, ephemeral: true });
+        return interaction.reply({ content: `✅ The song has been set for **${date}**! (Overwriting if necessary)`});
     },
 
     scheduleSongOfTheDay
