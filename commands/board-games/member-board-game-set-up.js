@@ -25,23 +25,26 @@ module.exports = {
         let users = [];
 
         // Ensure file exists before reading
-        if (fs.existsSync(serverFilePath)) {
-            users = await new Promise((resolve) => {
-                const results = [];
-                fs.createReadStream(serverFilePath)
-                    .pipe(csvParser())
-                    .on('data', data => {
-                        data.discordId = data['Discord ID'.trim()] || data['discordId']?.trim();
-                        data.bggUsername = data['BGG Username'.trim()] || data['bggUsername']?.trim();
-                        results.push(data);
-                    })
-                    .on('end', () => resolve(results))
-                    .on('error', error => {
-                        console.error("Error reading CSV:", error);
-                        resolve([]);
-                    });
-            });
+        if (!fs.existsSync(serverFilePath)) {
+            fs.writeFileSync(serverFilePath, "Discord ID,BGG Username\n"); // Create file with headers
         }
+
+        // Read existing data from CSV
+        users = await new Promise((resolve) => {
+            const results = [];
+            fs.createReadStream(serverFilePath)
+                .pipe(csvParser())
+                .on('data', data => {
+                    data.discordId = data['Discord ID']?.trim() || data['discordId']?.trim();
+                    data.bggUsername = data['BGG Username']?.trim() || data['bggUsername']?.trim();
+                    results.push(data);
+                })
+                .on('end', () => resolve(results))
+                .on('error', error => {
+                    console.error("Error reading CSV:", error);
+                    resolve([]);
+                });
+        });
 
         const existingUser = users.find(user => user.discordId === discordId);
         let message;
