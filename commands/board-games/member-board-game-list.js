@@ -5,8 +5,6 @@ const path = require('path');
 const csvParser = require('csv-parser');
 const { parseStringPromise } = require('xml2js');
 
-const filePath = path.join(__dirname, 'member-board-games.csv');
-
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('list-member-games')
@@ -20,20 +18,27 @@ module.exports = {
     async execute(interaction) {
         const targetUser = interaction.options.getUser('target');
         const discordId = targetUser.id;
+        const serverId = interaction.guild.id;
+        const serverFilePath = path.join(__dirname, `server_${serverId}_board_games.csv`);
 
-        // Load BGG usernames from CSV
-        const users = await new Promise((resolve, reject) => {
+        if (!fs.existsSync(serverFilePath)) {
+            return interaction.reply(`No board game data found for this server. Users must set their BGG username first.`);
+        }
+
+        const users = await new Promise((resolve) => {
             const results = [];
-            if (!fs.existsSync(filePath)) return resolve([]);
-            fs.createReadStream(filePath)
+            fs.createReadStream(serverFilePath)
                 .pipe(csvParser())
                 .on('data', data => {
-                    data.discordId = data['Discord ID']?.trim();
-                    data.bggUsername = data['BGG Username']?.trim();
+                    data.discordId = data['Discord ID'.trim()] || data['discordId']?.trim();
+                    data.bggUsername = data['BGG Username'.trim()] || data['bggUsername']?.trim();
                     results.push(data);
                 })
                 .on('end', () => resolve(results))
-                .on('error', reject);
+                .on('error', error => {
+                    console.error("Error reading CSV:", error);
+                    resolve([]);
+                });
         });
 
         const user = users.find(u => u.discordId === discordId);
@@ -47,17 +52,13 @@ module.exports = {
         await interaction.deferReply();
 
         try {
-            // Fetch the user's collection from BGG API
             const collectionResponse = await axios.get(`https://boardgamegeek.com/xmlapi2/collection?username=${username}&own=1`);
             const collectionData = await parseStringPromise(collectionResponse.data);
 
-            // Check if the API response contains valid data
             if (!collectionData.items || !collectionData.items.item) {
-                const errorMessage = collectionData.message || 'No games found or user does not exist.';
-                return interaction.editReply(`Error: ${errorMessage}`);
+                return interaction.editReply(`No games found for user "${username}".`);
             }
 
-            // Extract games from the response
             const games = collectionData.items.item.map(item => item.name[0]._);
 
             if (games.length === 0) {
@@ -66,7 +67,6 @@ module.exports = {
 
             let currentPage = 0;
 
-            // Helper function to generate the paginated embed
             const generateEmbed = (page) => {
                 const start = page * ITEMS_PER_PAGE;
                 const end = start + ITEMS_PER_PAGE;
@@ -92,11 +92,9 @@ module.exports = {
                 };
             };
 
-            // Send the initial embed
             const initialEmbed = generateEmbed(currentPage);
             const message = await interaction.editReply(initialEmbed);
 
-            // Create a collector to handle button interactions
             const filter = (i) => i.user.id === interaction.user.id;
             const collector = message.createMessageComponentCollector({ filter, time: 60000 });
 
@@ -112,7 +110,6 @@ module.exports = {
             });
 
             collector.on('end', async () => {
-                // Disable buttons after collector ends
                 const disabledComponents = initialEmbed.components[0].components.map(button =>
                     button.setDisabled(true)
                 );
@@ -125,4 +122,3 @@ module.exports = {
         }
     },
 };
-
