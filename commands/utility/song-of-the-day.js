@@ -88,11 +88,12 @@ module.exports = {
         const { guildId, member } = interaction;
         const date = interaction.options.getString('date');
         const songUrl = interaction.options.getString('song_url');
+        const allowedRoles = ['Club Officer', 'Developer', 'Admin'];
 
-        // Check if the user has the "Club Officer" role
-        const clubOfficerRole = member.roles.cache.find(role => role.name === 'Club Officer');
-        if (!clubOfficerRole) {
-            return interaction.reply({ content: '⚠️ You do not have permission to use this command. Only **Club Officers** can set the Song of the Day.', ephemeral: true });
+        // Check if the user has the allowed role
+        const hasPermision = member.roles.cache.some(role => allowedRoles.includes(role.name));
+        if (!hasPermision) {
+            return interaction.reply({ content: '⚠️ You do not have permission to use this command. Only **Club Officers** and **Developers** can set the Song of the Day.', ephemeral: true });
         }
 
         // Validate date format
