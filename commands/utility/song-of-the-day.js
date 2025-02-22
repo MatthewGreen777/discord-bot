@@ -8,12 +8,10 @@ if (!fs.existsSync(dataFolder)) {
     fs.mkdirSync(dataFolder);
 }
 
-// Function to get the CSV path for a server
 function getServerCSVPath(guildId) {
     return path.join(dataFolder, `songs_${guildId}.csv`);
 }
 
-// Ensure a server CSV file exists
 function ensureServerCSVExists(guildId) {
     const filePath = getServerCSVPath(guildId);
     if (!fs.existsSync(filePath)) {
@@ -21,7 +19,6 @@ function ensureServerCSVExists(guildId) {
     }
 }
 
-// Function to add or update a song in the CSV
 function addOrUpdateSong(guildId, date, songUrl) {
     const filePath = getServerCSVPath(guildId);
     ensureServerCSVExists(guildId);
@@ -32,19 +29,28 @@ function addOrUpdateSong(guildId, date, songUrl) {
     data = data.map(line => {
         if (line.startsWith(date)) {
             found = true;
-            return `${date},${songUrl}`; // Update existing date
+            return `${date},${songUrl}`;
         }
         return line;
     });
 
     if (!found) {
-        data.push(`${date},${songUrl}`); // Add new entry if not found
+        data.push(`${date},${songUrl}`);
     }
 
     fs.writeFileSync(filePath, data.join('\n'), 'utf8');
 }
 
-// Scheduled job to send the song of the day
+function removeSongFromCSV(guildId, date) {
+    const filePath = getServerCSVPath(guildId);
+    if (!fs.existsSync(filePath)) return;
+
+    let data = fs.readFileSync(filePath, 'utf8').split('\n');
+    data = data.filter(line => !line.startsWith(date) && line.trim() !== '');
+    
+    fs.writeFileSync(filePath, data.join('\n'), 'utf8');
+}
+
 function scheduleSongOfTheDay(client) {
     schedule.scheduleJob('17 6 * * *', async function () {
         for (const guild of [...client.guilds.cache.values()]) {
@@ -52,19 +58,20 @@ function scheduleSongOfTheDay(client) {
             const filePath = getServerCSVPath(guildId);
             if (!fs.existsSync(filePath)) continue;
 
-            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-            const formattedDate = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }); // MM/DD
+            const today = new Date().toISOString().split('T')[0];
+            const formattedDate = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
             const data = fs.readFileSync(filePath, 'utf8').split('\n').slice(1);
             const songEntry = data.find(line => line.startsWith(today));
 
             if (songEntry) {
                 const [, songUrl] = songEntry.split(',');
 
-                // Find the "song-of-the-day" channel
                 const channel = guild.channels.cache.find(ch => ch.name === 'song-of-the-day');
                 if (channel) {
                     channel.send(`${formattedDate}\n${songUrl} .`);
                 }
+
+                removeSongFromCSV(guildId, today);
             }
         }
     });
@@ -90,23 +97,18 @@ module.exports = {
         const songUrl = interaction.options.getString('song_url');
         const allowedRoles = ['Club Officer', 'Developer', 'Admin'];
 
-        // Check if the user has the allowed role
         const hasPermision = member.roles.cache.some(role => allowedRoles.includes(role.name));
         if (!hasPermision) {
-            return interaction.reply({ content: '⚠️ You do not have permission to use this command. Only **Club Officers** and **Developers** can set the Song of the Day.', ephemeral: true });
+            return interaction.reply({ content: '⚠️ You do not have permission to use this command.', ephemeral: true });
         }
 
-        // Validate date format
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
             return interaction.reply({ content: 'Invalid date format! Please use YYYY-MM-DD.', ephemeral: true });
         }
 
-        // Ensure the CSV file exists for this server
         ensureServerCSVExists(guildId);
-
-        // Save or update the song
         addOrUpdateSong(guildId, date, songUrl);
-        return interaction.reply({ content: `✅ The song has been set for **${date}**! (Overwriting if necessary)`});
+        return interaction.reply({ content: `✅ The song has been set for **${date}**!` });
     },
 
     scheduleSongOfTheDay
