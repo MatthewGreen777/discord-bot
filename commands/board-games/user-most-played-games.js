@@ -28,8 +28,8 @@ module.exports = {
             fs.createReadStream(filePath)
                 .pipe(csvParser())
                 .on('data', data => {
-                    data.discordId = data['Discord ID']?.trim();
-                    data.bggUsername = data['BGG Username']?.trim();
+                    data.discordId = data['Discord ID'.trim()] || data['discordId']?.trim();
+                    data.bggUsername = data['BGG Username'.trim()] || data['bggUsername']?.trim();
                     results.push(data);
                 })
                 .on('end', () => resolve(results))
