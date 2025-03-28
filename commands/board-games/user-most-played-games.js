@@ -5,7 +5,8 @@ const path = require('path');
 const csvParser = require('csv-parser');
 const { parseStringPromise } = require('xml2js');
 
-const filePath = path.join(__dirname, 'member-board-games.csv');
+const serverId = interaction.guild.id;
+const filePath = path.join(__dirname, `server_${serverId}_board_games.csv`);
 
 module.exports = {
     data: new SlashCommandBuilder()
