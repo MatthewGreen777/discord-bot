@@ -2,17 +2,25 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, Events, GatewayIntentBits, MessageFlags } = require('discord.js');
 const { scheduleSongOfTheDay } = require('./commands/utility/song-of-the-day');
+const { logMessage } = require('./message-logger'); // 👈 add message logger
 require('dotenv').config(); // Load .env variables
 
 const token = process.env.DISCORD_TOKEN;
 const clientID = process.env.DISCORD_CLIENT_ID;
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ 
+    intents: [ 
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,   // 👈 required for message events
+        GatewayIntentBits.MessageContent   // 👈 required to read message text
+    ] 
+});
 
 client.commands = new Collection();
 const foldersPath = path.join(__dirname, 'commands');
 const commandFolders = fs.readdirSync(foldersPath);
 
+// Load all commands dynamically
 for (const folder of commandFolders) {
     const commandsPath = path.join(foldersPath, folder);
     const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
@@ -31,11 +39,13 @@ client.once(Events.ClientReady, readyClient => {
     console.log(`Ready! Logged in as ${readyClient.user.tag}`);
 });
 
+// Handle when bot joins a new guild
 client.on(Events.GuildCreate, guild => {
     const guildCreateHandler = require('./events/guildcreate');
     guildCreateHandler(guild);
 });
 
+// Handle slash command interactions
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
     const command = interaction.client.commands.get(interaction.commandName);
@@ -57,9 +67,14 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
+// 👇 NEW: log all messages for stats
+client.on('messageCreate', async (message) => {
+    await logMessage(message).catch(console.error);
+});
+
 client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}!`);
-    scheduleSongOfTheDay(client); // Pass client here
+    scheduleSongOfTheDay(client); // Keep your song-of-the-day scheduler
 });
 
 client.login(token);
