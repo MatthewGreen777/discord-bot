@@ -1,8 +1,8 @@
-// user-stats.js
+// commands/other/user-stats.js
 const { SlashCommandBuilder } = require('discord.js');
 const fs = require('fs');
 const csvParser = require('csv-parser');
-const { filePath } = require('../message-logger');
+const { filePath } = require('../../message-logger'); // 👈 fixed path
 
 module.exports = {
     data: new SlashCommandBuilder()
