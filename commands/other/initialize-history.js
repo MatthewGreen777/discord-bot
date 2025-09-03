@@ -1,96 +1,78 @@
-// commands/other/initialize-history.js
-const { SlashCommandBuilder, ChannelType } = require('discord.js');
-const { createObjectCsvWriter } = require('csv-writer');
-const path = require('path');
+const { SlashCommandBuilder } = require('discord.js');
+const { logMessages } = require('../../message-logger'); // ✅ use new bulk logger
 
-const filePath = path.join(__dirname, '../../message-stats.csv');
-
-// Helper function to fetch all messages in a channel with a delay
-async function fetchAllMessages(channel) {
-    let allMessages = [];
-    let lastId = null;
-
-    try {
-        while (true) {
-            const options = { limit: 100 };
-            if (lastId) options.before = lastId;
-
-            const messages = await channel.messages.fetch(options);
-            if (messages.size === 0) break;
-
-            allMessages.push(...messages.values());
-            lastId = messages.last().id;
-
-            // Wait 1 second to avoid hitting Discord's rate limits
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-    } catch (error) {
-        console.error(`Failed to fetch messages from channel ${channel.name}:`, error);
-    }
-
-    return allMessages;
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('initialize-history')
-        .setDescription('Fetches all past messages in this server and initializes message stats.'),
+        .setDescription('Fetch all past messages in this server and initialize message stats.'),
+
     async execute(interaction) {
-        // Defer the reply so the command doesn't time out
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.reply('⏳ Initializing message history... This may take a while.');
 
-        const stats = {}; // In-memory object to store all stats
+        let totalMessages = 0;
+        const guild = interaction.guild;
 
-        // Get all text channels
-        const channels = interaction.guild.channels.cache.filter(c => c.type === ChannelType.GuildText);
+        for (const [channelId, channel] of guild.channels.cache) {
+            if (!channel.isTextBased()) continue;
 
-        for (const channel of channels.values()) {
-            console.log(`Fetching messages from #${channel.name}...`);
-            const messages = await fetchAllMessages(channel);
+            let lastId;
+            let done = false;
 
-            for (const msg of messages) {
-                // Skip bot messages
-                if (msg.author.bot) continue;
+            while (!done) {
+                try {
+                    const options = { limit: 100 };
+                    if (lastId) options.before = lastId;
 
-                const userId = msg.author.id;
-                const username = msg.author.username;
-                const wordCount = msg.content.trim().split(/\s+/).filter(Boolean).length;
+                    const messages = await channel.messages.fetch(options);
 
-                // Update the in-memory stats object
-                if (!stats[userId]) {
-                    stats[userId] = { username, messages: 0, words: 0 };
+                    if (messages.size === 0) {
+                        done = true;
+                        break;
+                    }
+
+                    // Filter messages
+                    const validMessages = [];
+                    for (const message of messages.values()) {
+                        if (message.author.bot) continue;
+
+                        const hasText = message.content && message.content.trim().length > 0;
+                        const hasAttachment = message.attachments.size > 0;
+                        const hasEmbed = message.embeds.length > 0;
+
+                        if (hasText || hasAttachment || hasEmbed) {
+                            validMessages.push(message);
+                        }
+                    }
+
+                    // ✅ Bulk log instead of per-message
+                    if (validMessages.length > 0) {
+                        await logMessages(validMessages);
+                        totalMessages += validMessages.length;
+                    }
+
+                    lastId = messages.last().id;
+
+                    // Prevent rate limits
+                    await sleep(250);
+
+                    // Progress update every 5k messages
+                    if (totalMessages % 5000 === 0) {
+                        await interaction.followUp(
+                            `📊 Processed ${totalMessages} messages so far... (channel: #${channel.name})`
+                        );
+                    }
+
+                } catch (err) {
+                    console.error(`Error fetching messages from ${channel.name}:`, err);
+                    done = true; // Skip this channel if an error occurs
                 }
-                stats[userId].messages++;
-                stats[userId].words += wordCount;
             }
         }
 
-        // Convert the in-memory object to an array of records for the CSV writer
-        const records = Object.keys(stats).map(userId => ({
-            userId,
-            username: stats[userId].username,
-            messages: stats[userId].messages,
-            words: stats[userId].words,
-        }));
-
-        const csvWriterInstance = createObjectCsvWriter({
-            path: filePath,
-            header: [
-                { id: 'userId', title: 'userId' },
-                { id: 'username', title: 'username' },
-                { id: 'messages', title: 'messages' },
-                { id: 'words', title: 'words' }
-            ],
-        });
-
-        try {
-            // Write to the CSV file only once after all data is collected
-            await csvWriterInstance.writeRecords(records);
-            await interaction.editReply(`✅ Finished initializing history! Collected data for **${records.length} users** and saved to CSV.`);
-            console.log('CSV file was written successfully!');
-        } catch (err) {
-            await interaction.editReply(`❌ An error occurred while writing to the CSV file.`);
-            console.error('Error writing CSV:', err);
-        }
+        await interaction.editReply(`✅ History initialized! Processed **${totalMessages} messages** across all channels.`);
     }
 };
