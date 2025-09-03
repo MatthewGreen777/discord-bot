@@ -6,17 +6,21 @@ const csvParser = require('csv-parser');
 
 const filePath = path.join(__dirname, 'message-stats.csv');
 
-if (!fs.existsSync(filePath)) {
-    const writer = csvWriter({
-        path: filePath,
-        header: [
-            { id: 'userId', title: 'userId' },
-            { id: 'username', title: 'username' },
-            { id: 'messages', title: 'messages' },
-            { id: 'words', title: 'words' }
-        ]
-    });
-    writer.writeRecords([]); // Initialize empty file
+// Ensure the CSV file exists with proper headers
+function ensureCsvFile() {
+    if (!fs.existsSync(filePath)) {
+        const writer = csvWriter({
+            path: filePath,
+            header: [
+                { id: 'userId', title: 'userId' },
+                { id: 'username', title: 'username' },
+                { id: 'messages', title: 'messages' },
+                { id: 'words', title: 'words' }
+            ]
+        });
+        return writer.writeRecords([]); // Initialize with empty records
+    }
+    return Promise.resolve();
 }
 
 async function logMessage(message) {
@@ -25,6 +29,8 @@ async function logMessage(message) {
     const userId = message.author.id;
     const username = message.author.username;
     const wordCount = message.content.trim().split(/\s+/).filter(Boolean).length;
+
+    await ensureCsvFile();
 
     const rows = [];
     let userFound = false;

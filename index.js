@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, Events, GatewayIntentBits, MessageFlags } = require('discord.js');
 const { scheduleSongOfTheDay } = require('./commands/utility/song-of-the-day');
-const { logMessage } = require('./message-logger'); // 👈 add message logger
+const { logMessage } = require('./message-logger'); // add message logger
 require('dotenv').config(); // Load .env variables
 
 const token = process.env.DISCORD_TOKEN;
@@ -11,8 +11,8 @@ const clientID = process.env.DISCORD_CLIENT_ID;
 const client = new Client({ 
     intents: [ 
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,   // 👈 required for message events
-        GatewayIntentBits.MessageContent   // 👈 required to read message text
+        GatewayIntentBits.GuildMessages,   // required for message events
+        GatewayIntentBits.MessageContent   //s required to read message text
     ] 
 });
 
@@ -67,14 +67,14 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-// 👇 NEW: log all messages for stats
+// log all messages for stats
 client.on('messageCreate', async (message) => {
     await logMessage(message).catch(console.error);
 });
 
 client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}!`);
-    scheduleSongOfTheDay(client); // Keep your song-of-the-day scheduler
+    scheduleSongOfTheDay(client); // song-of-the-day scheduler
 });
 
 client.login(token);

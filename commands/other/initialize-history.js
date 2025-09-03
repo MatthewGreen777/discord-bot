@@ -1,27 +1,31 @@
-const { SlashCommandBuilder } = require('discord.js');
-const fs = require('fs');
+// commands/utility/initialize-history.js
+const { SlashCommandBuilder, ChannelType } = require('discord.js');
+const { createObjectCsvWriter } = require('csv-writer');
 const path = require('path');
-const csvWriter = require('csv-writer').createObjectCsvWriter;
 
 const filePath = path.join(__dirname, '../../data/message-stats.csv');
 
-// Helper: fetch all messages in a channel
+// Helper function to fetch all messages in a channel
 async function fetchAllMessages(channel) {
     let allMessages = [];
     let lastId = null;
 
-    while (true) {
-        const options = { limit: 100 };
-        if (lastId) options.before = lastId;
+    try {
+        while (true) {
+            const options = { limit: 100 };
+            if (lastId) options.before = lastId;
 
-        const messages = await channel.messages.fetch(options);
-        if (messages.size === 0) break;
+            const messages = await channel.messages.fetch(options);
+            if (messages.size === 0) break;
 
-        allMessages = allMessages.concat(Array.from(messages.values()));
-        lastId = messages.last().id;
+            allMessages.push(...messages.values());
+            lastId = messages.last().id;
 
-        // prevent hitting global rate limits
-        await new Promise(resolve => setTimeout(resolve, 500));
+            // Small delay to avoid rate limits
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    } catch (error) {
+        console.error(`Failed to fetch messages from channel ${channel.name}:`, error);
     }
 
     return allMessages;
@@ -30,61 +34,61 @@ async function fetchAllMessages(channel) {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('initialize-history')
-        .setDescription('Fetch all past messages in this server and initialize message stats.'),
+        .setDescription('Fetches all past messages in this server and initializes message stats.'),
     async execute(interaction) {
-        await interaction.reply('Starting history initialization... This may take a while ⏳');
+        await interaction.deferReply({ ephemeral: true });
 
-        const stats = {}; // { userId: { username, words, messages } }
+        const stats = {}; // { userId: { username, messages, words } }
 
-        const channels = interaction.guild.channels.cache.filter(c => c.isTextBased());
+        // Get all text channels
+        const channels = interaction.guild.channels.cache.filter(c => c.type === ChannelType.GuildText);
 
-        for (const [id, channel] of channels) {
-            try {
-                const messages = await fetchAllMessages(channel);
+        for (const channel of channels.values()) {
+            console.log(`Fetching messages from #${channel.name}...`);
+            const messages = await fetchAllMessages(channel);
 
-                for (const msg of messages) {
-                    if (msg.author.bot) continue;
+            for (const msg of messages) {
+                if (msg.author.bot) continue;
 
-                    if (!stats[msg.author.id]) {
-                        stats[msg.author.id] = {
-                            username: msg.author.tag,
-                            words: 0,
-                            messages: 0
-                        };
-                    }
+                const userId = msg.author.id;
+                const username = msg.author.username;
+                const wordCount = msg.content.trim().split(/\s+/).filter(Boolean).length;
 
-                    const wordCount = msg.content.split(/\s+/).filter(Boolean).length;
-
-                    stats[msg.author.id].messages += 1;
-                    stats[msg.author.id].words += wordCount;
+                if (!stats[userId]) {
+                    stats[userId] = { username, messages: 0, words: 0 };
                 }
 
-                console.log(`Fetched ${messages.length} messages from #${channel.name}`);
-            } catch (err) {
-                console.error(`Failed to fetch from ${channel.name}:`, err);
+                stats[userId].messages++;
+                stats[userId].words += wordCount;
             }
         }
 
-        // Save to CSV
-        const csvWriterInstance = csvWriter({
+        const csvWriterInstance = createObjectCsvWriter({
             path: filePath,
             header: [
-                { id: 'username', title: 'username' },
                 { id: 'userId', title: 'userId' },
-                { id: 'words', title: 'words' },
+                { id: 'username', title: 'username' },
                 { id: 'messages', title: 'messages' },
+                { id: 'words', title: 'words' },
             ],
         });
 
-        const records = Object.entries(stats).map(([userId, data]) => ({
-            username: data.username,
+        const records = Object.keys(stats).map(userId => ({
             userId,
-            words: data.words,
-            messages: data.messages
+            username: stats[userId].username,
+            messages: stats[userId].messages,
+            words: stats[userId].words,
         }));
 
-        await csvWriterInstance.writeRecords(records);
-
-        await interaction.followUp(`✅ Finished initializing history! Collected data for **${records.length} users**.`);
+        try {
+            await csvWriterInstance.writeRecords(records);
+            await interaction.editReply(
+                `✅ Finished initializing history! Collected data for **${records.length} users** and saved to CSV.`
+            );
+            console.log('CSV file was written successfully!');
+        } catch (err) {
+            await interaction.editReply(`❌ An error occurred while writing to the CSV file.`);
+            console.error('Error writing CSV:', err);
+        }
     }
 };
