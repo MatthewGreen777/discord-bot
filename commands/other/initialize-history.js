@@ -1,5 +1,6 @@
+// commands/other/initialize-history.js
 const { SlashCommandBuilder } = require('discord.js');
-const { logMessages } = require('../../message-logger'); // ✅ use new bulk logger
+const { logMessage } = require('../../message-logger');
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -34,7 +35,7 @@ module.exports = {
                         break;
                     }
 
-                    // Filter messages
+                    // Collect valid messages for this batch
                     const validMessages = [];
                     for (const message of messages.values()) {
                         if (message.author.bot) continue;
@@ -48,9 +49,11 @@ module.exports = {
                         }
                     }
 
-                    // ✅ Bulk log instead of per-message
+                    // Log in bulk to reduce DB overhead
                     if (validMessages.length > 0) {
-                        await logMessages(validMessages);
+                        for (const msg of validMessages) {
+                            await logMessage(msg);
+                        }
                         totalMessages += validMessages.length;
                     }
 
