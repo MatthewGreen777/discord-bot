@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, Events, GatewayIntentBits, MessageFlags } = require('discord.js');
 const { scheduleSongOfTheDay } = require('./commands/utility/song-of-the-day');
-const { logMessage } = require('./message-logger'); // 👈 add message logger
+const { logMessage } = require('./commands/other/message-logger'); // 👈 add message logger
 require('dotenv').config(); // Load .env variables
 
 const token = process.env.DISCORD_TOKEN;
