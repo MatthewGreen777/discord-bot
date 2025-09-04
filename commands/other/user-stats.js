@@ -28,8 +28,8 @@ module.exports = {
                     found = true;
                     interaction.reply(
                         `📊 Stats for **${row.username}**:\n` +
-                        `- Messages sent: **${row.messages}**\n` +
-                        `- Words typed: **${row.words}**`
+                        `- Messages sent: **${row.messages}** (Rank: #${row.messageRank})\n` +
+                        `- Words typed: **${row.words}** (Rank: #${row.wordRank})`
                     );
                 }
             })
@@ -43,4 +43,5 @@ module.exports = {
                 interaction.reply('There was an error retrieving the stats.');
             });
     }
+
 };

@@ -6,21 +6,19 @@ const csvParser = require('csv-parser');
 
 const filePath = path.join(__dirname, 'message-stats.csv');
 
-// Ensure the CSV file exists with proper headers
-function ensureCsvFile() {
-    if (!fs.existsSync(filePath)) {
-        const writer = csvWriter({
-            path: filePath,
-            header: [
-                { id: 'userId', title: 'userId' },
-                { id: 'username', title: 'username' },
-                { id: 'messages', title: 'messages' },
-                { id: 'words', title: 'words' }
-            ]
-        });
-        return writer.writeRecords([]); // Initialize with empty records
-    }
-    return Promise.resolve();
+if (!fs.existsSync(filePath)) {
+    const writer = csvWriter({
+        path: filePath,
+        header: [
+            { id: 'userId', title: 'userId' },
+            { id: 'username', title: 'username' },
+            { id: 'messages', title: 'messages' },
+            { id: 'words', title: 'words' },
+            { id: 'messageRank', title: 'messageRank' },
+            { id: 'wordRank', title: 'wordRank' }
+        ]
+    });
+    writer.writeRecords([]); // Initialize empty file
 }
 
 async function logMessage(message) {
@@ -29,8 +27,6 @@ async function logMessage(message) {
     const userId = message.author.id;
     const username = message.author.username;
     const wordCount = message.content.trim().split(/\s+/).filter(Boolean).length;
-
-    await ensureCsvFile();
 
     const rows = [];
     let userFound = false;
@@ -42,10 +38,15 @@ async function logMessage(message) {
                 if (row.userId === userId) {
                     row.messages = parseInt(row.messages) + 1;
                     row.words = parseInt(row.words) + wordCount;
-                    row.username = username; // Update username if changed
+                    row.username = username; // update username
                     userFound = true;
                 }
-                rows.push(row);
+                rows.push({
+                    userId: row.userId,
+                    username: row.username,
+                    messages: parseInt(row.messages),
+                    words: parseInt(row.words),
+                });
             })
             .on('end', () => {
                 if (!userFound) {
@@ -53,9 +54,18 @@ async function logMessage(message) {
                         userId,
                         username,
                         messages: 1,
-                        words: wordCount
+                        words: wordCount,
                     });
                 }
+
+                // 🔹 Recalculate ranks
+                const byMessages = [...rows].sort((a, b) => b.messages - a.messages);
+                const byWords = [...rows].sort((a, b) => b.words - a.words);
+
+                rows.forEach(user => {
+                    user.messageRank = byMessages.findIndex(r => r.userId === user.userId) + 1;
+                    user.wordRank = byWords.findIndex(r => r.userId === user.userId) + 1;
+                });
 
                 const writer = csvWriter({
                     path: filePath,
@@ -63,7 +73,9 @@ async function logMessage(message) {
                         { id: 'userId', title: 'userId' },
                         { id: 'username', title: 'username' },
                         { id: 'messages', title: 'messages' },
-                        { id: 'words', title: 'words' }
+                        { id: 'words', title: 'words' },
+                        { id: 'messageRank', title: 'messageRank' },
+                        { id: 'wordRank', title: 'wordRank' }
                     ]
                 });
 
