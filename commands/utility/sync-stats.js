@@ -1,7 +1,8 @@
+// commands/utility/sync-stats.js
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const csvWriter = require('csv-writer').createObjectCsvWriter;
-const { getGuildFilePath } = require('../../message-logger'); // Correct import for per-server files
+const { getGuildFilePath } = require('../../message-logger'); // Ensure path is correct
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -12,28 +13,47 @@ module.exports = {
     async execute(interaction) {
         // 1. Role Check
         if (!interaction.member.roles.cache.some(role => role.name === 'Developer')) {
-            return interaction.reply({ content: 'Only users with the **Developer** role can run this.', ephemeral: true });
+            return interaction.reply({ 
+                content: 'Only users with the **Developer** role can run this command.', 
+                ephemeral: true 
+            });
         }
 
-        await interaction.deferReply(); 
+        /**
+         * 2. IMMEDIATE RESPONSE
+         * We reply instantly to satisfy Discord's 3-second limit.
+         * We do NOT use deferReply here because the process exceeds the 15-minute token limit.
+         */
+        await interaction.reply({ 
+            content: '🚀 **Sync Started.** I am scanning all channels. This may take a while depending on server size. I will send a final report in this channel when finished!' 
+        });
 
         const guild = interaction.guild;
-        const filePath = getGuildFilePath(guild.id); // Gets the specific file path for THIS server
-        const statsMap = new Map(); 
+        const filePath = getGuildFilePath(guild.id);
+        const statsMap = new Map();
+        const startTime = Date.now();
 
+        // 3. BACKGROUND PROCESSING
+        // We do NOT "await" this whole block in a way that blocks the interaction response.
         try {
-            // 2. Fetch all Text Channels the bot can see
             const channels = guild.channels.cache.filter(c => c.isTextBased());
 
             for (const [id, channel] of channels) {
                 let lastId;
+                
+                // Track progress in console for PM2 logs
+                console.log(`[Sync] Starting scan for channel: #${channel.name}`);
 
                 while (true) {
                     const options = { limit: 100 };
                     if (lastId) options.before = lastId;
 
-                    // Fetch messages in chunks of 100
-                    const messages = await channel.messages.fetch(options).catch(() => null);
+                    // Fetch messages with a catch to prevent channel permission errors from stopping the sync
+                    const messages = await channel.messages.fetch(options).catch(err => {
+                        console.error(`Could not fetch messages for ${channel.name}:`, err.message);
+                        return null;
+                    });
+
                     if (!messages || messages.size === 0) break;
 
                     messages.forEach(msg => {
@@ -61,7 +81,7 @@ module.exports = {
                 }
             }
 
-            // 3. Process data into Array and Calculate Ranks
+            // 4. RANKING CALCULATION
             const newStatsArray = Array.from(statsMap.values());
             const sortedByMsgs = [...newStatsArray].sort((a, b) => b.messages - a.messages);
             const sortedByWords = [...newStatsArray].sort((a, b) => b.words - a.words);
@@ -71,7 +91,7 @@ module.exports = {
                 user.wordRank = sortedByWords.findIndex(u => u.userId === user.userId) + 1;
             });
 
-            // 4. Overwrite/Create the server-specific CSV
+            // 5. WRITE TO CSV
             const writer = csvWriter({
                 path: filePath,
                 header: [
@@ -86,21 +106,30 @@ module.exports = {
 
             await writer.writeRecords(newStatsArray);
 
-            const successEmbed = new EmbedBuilder()
+            // 6. FINAL NOTIFICATION
+            const endTime = Date.now();
+            const durationMinutes = ((endTime - startTime) / 60000).toFixed(2);
+
+            const completionEmbed = new EmbedBuilder()
                 .setColor(0x00FF00)
-                .setTitle('✅ Server Sync Complete')
-                .setDescription(`Rebuilt the stats file for **${guild.name}**.`)
+                .setTitle('✅ Sync Complete')
+                .setThumbnail(guild.iconURL())
                 .addFields(
-                    { name: 'Users Processed', value: `${newStatsArray.length}`, inline: true },
-                    { name: 'File Name', value: `${guild.id}.csv`, inline: true }
+                    { name: 'Users Tracked', value: `${newStatsArray.length}`, inline: true },
+                    { name: 'Time Taken', value: `${durationMinutes}m`, inline: true },
+                    { name: 'Status', value: 'Database Rebuilt Successfully', inline: false }
                 )
                 .setTimestamp();
 
-            await interaction.editReply({ embeds: [successEmbed] });
+            // We use interaction.channel.send because the interaction token is likely expired
+            await interaction.channel.send({ 
+                content: `<@${interaction.user.id}>`, 
+                embeds: [completionEmbed] 
+            });
 
         } catch (error) {
-            console.error(error);
-            await interaction.editReply('An error occurred while syncing history.');
+            console.error('CRITICAL SYNC ERROR:', error);
+            await interaction.channel.send('❌ **An error occurred during sync.** Rebuild failed. Check the PM2 logs for details.');
         }
     }
 };
