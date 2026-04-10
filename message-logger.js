@@ -4,11 +4,13 @@ const path = require('path');
 const csvWriter = require('csv-writer').createObjectCsvWriter;
 const csvParser = require('csv-parser');
 
-const filePath = path.join(__dirname, 'message-stats.csv');
+// Create a directory for stats if it doesn't exist
+const statsDir = path.join(__dirname, 'stats');
+if (!fs.existsSync(statsDir)) {
+    fs.mkdirSync(statsDir);
+}
 
-// Updated Header with guildId
 const csvHeader = [
-    { id: 'guildId', title: 'guildId' }, // New Column
     { id: 'userId', title: 'userId' },
     { id: 'username', title: 'username' },
     { id: 'messages', title: 'messages' },
@@ -17,18 +19,23 @@ const csvHeader = [
     { id: 'wordRank', title: 'wordRank' }
 ];
 
-if (!fs.existsSync(filePath)) {
-    const writer = csvWriter({ path: filePath, header: csvHeader });
-    writer.writeRecords([]); 
-}
+// Helper to get the specific file for a server
+const getGuildFilePath = (guildId) => path.join(statsDir, `${guildId}.csv`);
 
 async function logMessage(message) {
-    if (message.author.bot || !message.guild) return; // Ignore DMs
+    if (message.author.bot || !message.guild) return;
 
     const guildId = message.guild.id;
+    const filePath = getGuildFilePath(guildId);
     const userId = message.author.id;
     const username = message.author.username;
     const wordCount = message.content.trim().split(/\s+/).filter(Boolean).length;
+
+    // Initialize file if this is the first message in this server
+    if (!fs.existsSync(filePath)) {
+        const writer = csvWriter({ path: filePath, header: csvHeader });
+        await writer.writeRecords([]);
+    }
 
     const rows = [];
     let userFound = false;
@@ -37,36 +44,34 @@ async function logMessage(message) {
         fs.createReadStream(filePath)
             .pipe(csvParser())
             .on('data', (row) => {
-                // Check if BOTH userId and guildId match
-                if (row.userId === userId && row.guildId === guildId) {
-                    row.messages = parseInt(row.messages) + 1;
-                    row.words = parseInt(row.words) + wordCount;
-                    row.username = username;
+                let messages = parseInt(row.messages) || 0;
+                let words = parseInt(row.words) || 0;
+
+                if (row.userId === userId) {
+                    messages += 1;
+                    words += wordCount;
                     userFound = true;
                 }
+
                 rows.push({
-                    guildId: row.guildId,
                     userId: row.userId,
-                    username: row.username,
-                    messages: parseInt(row.messages),
-                    words: parseInt(row.words),
+                    username: row.userId === userId ? username : row.username,
+                    messages: messages,
+                    words: words
                 });
             })
             .on('end', () => {
                 if (!userFound) {
-                    rows.push({ guildId, userId, username, messages: 1, words: wordCount });
+                    rows.push({ userId, username, messages: 1, words: wordCount });
                 }
 
-                // Recalculate ranks ONLY for the current server
-                const guildRows = rows.filter(r => r.guildId === guildId);
-                const byMessages = [...guildRows].sort((a, b) => b.messages - a.messages);
-                const byWords = [...guildRows].sort((a, b) => b.words - a.words);
+                // Rank the users (Local to this file/server only)
+                const byMessages = [...rows].sort((a, b) => b.messages - a.messages);
+                const byWords = [...rows].sort((a, b) => b.words - a.words);
 
                 rows.forEach(user => {
-                    if (user.guildId === guildId) {
-                        user.messageRank = byMessages.findIndex(r => r.userId === user.userId) + 1;
-                        user.wordRank = byWords.findIndex(r => r.userId === user.userId) + 1;
-                    }
+                    user.messageRank = byMessages.findIndex(r => r.userId === user.userId) + 1;
+                    user.wordRank = byWords.findIndex(r => r.userId === user.userId) + 1;
                 });
 
                 const writer = csvWriter({ path: filePath, header: csvHeader });
@@ -76,4 +81,5 @@ async function logMessage(message) {
     });
 }
 
-module.exports = { logMessage, filePath };
+// We export the function instead of a static path now
+module.exports = { logMessage, getGuildFilePath };
