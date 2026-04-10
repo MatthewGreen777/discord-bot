@@ -8,3 +8,4 @@ node_modules/
 DisccordBot.pem
 commands/board-games/member-board-games.csv
 commands/utility/upcoming-events.csv
+commands/board-games
