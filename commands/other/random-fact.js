@@ -9,7 +9,7 @@ module.exports = {
     async execute(interaction) {
         try {
             // Path to the CSV file
-            const filePath = path.join(__dirname, '../../random-facts.csv');
+            const filePath = path.join(__dirname, 'random-facts.csv');
 
             // Read the file contents
             const fileContent = fs.readFileSync(filePath, 'utf8');
