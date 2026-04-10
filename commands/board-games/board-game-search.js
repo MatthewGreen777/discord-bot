@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 const { parseStringPromise } = require('xml2js');
 
@@ -14,82 +14,75 @@ module.exports = {
     async execute(interaction) {
         const gameName = interaction.options.getString('name');
 
-        // Defer the reply to allow time for fetching data
         await interaction.deferReply();
 
         try {
-            // Search for the board game using the BGG API
+            // 1. Search for the game
             const searchResponse = await axios.get(`https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(gameName)}&type=boardgame`);
             const searchData = await parseStringPromise(searchResponse.data);
 
-            // If no games are found, notify the user
-            if (!searchData.items.item || searchData.items.item.length === 0) {
+            const items = searchData.items.item;
+            if (!items || items.length === 0) {
                 return interaction.editReply(`No board games found with the name "${gameName}".`);
             }
 
-            // Limit the total results to 100 and process in batches of 20
-            const totalItems = searchData.items.item.slice(0, 100);
-            const batchSize = 20;
+            // 2. Grab the first 20 IDs. 
+            // BGG allows max 20 per request. Doing more requires a 5-sec sleep between calls.
+            const gameIds = items.slice(0, 20).map(item => item.$.id).join(',');
 
-            const games = [];
-            for (let i = 0; i < totalItems.length; i += batchSize) {
-                const batch = totalItems.slice(i, i + batchSize);
-                const gameIds = batch.map(item => item.$.id).join(',');
+            // 3. Get detailed stats
+            const detailsResponse = await axios.get(`https://boardgamegeek.com/xmlapi2/thing?id=${gameIds}&stats=1`);
+            const detailsData = await parseStringPromise(detailsResponse.data);
 
-                // Retrieve detailed data for the current batch
-                const detailsResponse = await axios.get(`https://boardgamegeek.com/xmlapi2/thing?id=${gameIds}&stats=1`);
-                const detailsData = await parseStringPromise(detailsResponse.data);
+            const games = detailsData.items.item.map(item => {
+                // Safely get the primary name
+                const primaryNameNode = item.name.find(n => n.$.type === 'primary');
+                const name = primaryNameNode ? primaryNameNode.$.value : 'Unknown';
+                
+                const yearPublished = item.yearpublished?.[0]?.$.value || 'Unknown';
+                const stats = item.statistics?.[0]?.ratings?.[0];
+                
+                // Find the main "Board Game Rank" specifically
+                const ranks = stats?.ranks?.[0]?.rank || [];
+                const boardGameRankNode = ranks.find(r => r.$.name === 'boardgame');
+                const rankValue = boardGameRankNode?.$.value;
 
-                // Extract games data
-                const batchGames = detailsData.items.item.map(item => {
-                    const name = item.name.find(n => n.$.type === 'primary').$.value;
-                    const yearPublished = item.yearpublished ? item.yearpublished[0].$.value : 'Unknown';
-                    const ratings = item.statistics[0].ratings[0];
-                    const rank = ratings.ranks[0].rank.find(r => r.$.type === 'subtype' && r.$.value !== 'Not Ranked');
-                    const numRatings = parseInt(ratings.usersrated[0].$.value, 10);
-                    const averageRating = parseFloat(ratings.average[0].$.value);
-                    const playtime = item.playingtime ? item.playingtime[0].$.value : 'Unknown';
-                    const weight = ratings.averageweight ? parseFloat(ratings.averageweight[0].$.value) : 'Unknown';
-
-                    return {
-                        name,
-                        yearPublished,
-                        rank: rank ? parseInt(rank.$.value, 10) : Infinity,
-                        numRatings,
-                        averageRating,
-                        playtime,
-                        weight,
-                    };
-                });
-
-                games.push(...batchGames);
-            }
-
-            // Find the game with the most ratings (votes)
-            const mostVotedGame = games.reduce((mostVoted, game) => {
-                return game.numRatings > mostVoted.numRatings ? game : mostVoted;
+                return {
+                    name,
+                    yearPublished,
+                    rank: (rankValue && rankValue !== 'Not Ranked') ? parseInt(rankValue, 10) : Infinity,
+                    numRatings: parseInt(stats?.usersrated?.[0]?.$.value || 0, 10),
+                    averageRating: parseFloat(stats?.average?.[0]?.$.value || 0),
+                    playtime: item.playingtime?.[0]?.$.value || 'Unknown',
+                    weight: parseFloat(stats?.averageweight?.[0]?.$.value || 0),
+                    thumbnail: item.thumbnail?.[0] || null
+                };
             });
 
-            // Reply with the most popular game's details
-            await interaction.editReply(
-                `**${mostVotedGame.name}**
-` +
-                `- Year Published: ${mostVotedGame.yearPublished}
-` +
-                `- Popularity Rank: ${mostVotedGame.rank === Infinity ? 'Not Ranked' : mostVotedGame.rank}
-` +
-                `- Number of Ratings: ${mostVotedGame.numRatings}
-` +
-                `- Average Rating: ${mostVotedGame.averageRating.toFixed(2)}
-` +
-                `- Average Playtime: ${mostVotedGame.playtime} minutes
-` +
-                `- Weight (Complexity): ${mostVotedGame.weight === 'Unknown' ? 'Unknown' : mostVotedGame.weight.toFixed(2)} / 5
-`
+            // 4. Find the "Most Voted" game among the search results
+            const mostVotedGame = games.reduce((prev, current) => 
+                (prev.numRatings > current.numRatings) ? prev : current
             );
+
+            // 5. Create a pretty Embed for the reply
+            const embed = new EmbedBuilder()
+                .setTitle(mostVotedGame.name)
+                .setColor(0xFF5A00) // BGG Orange
+                .setThumbnail(mostVotedGame.thumbnail)
+                .addFields(
+                    { name: '📅 Year', value: mostVotedGame.yearPublished.toString(), inline: true },
+                    { name: '🏆 Rank', value: mostVotedGame.rank === Infinity ? 'Not Ranked' : `#${mostVotedGame.rank}`, inline: true },
+                    { name: '⭐ Rating', value: `${mostVotedGame.averageRating.toFixed(1)} / 10 (${mostVotedGame.numRatings} votes)`, inline: true },
+                    { name: '⚖️ Complexity', value: `${mostVotedGame.weight.toFixed(2)} / 5`, inline: true },
+                    { name: '⏱️ Playtime', value: `${mostVotedGame.playtime} mins`, inline: true }
+                )
+                .setFooter({ text: 'Data from BoardGameGeek' });
+
+            await interaction.editReply({ embeds: [embed] });
+
         } catch (error) {
-            console.error('Error fetching board game data:', error);
-            await interaction.editReply('An error occurred while fetching the board game details. Please try again later.');
+            console.error('BGG API Error:', error);
+            await interaction.editReply('An error occurred while fetching data. BGG might be busy (Rate Limited).');
         }
     },
 };

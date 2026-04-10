@@ -1,9 +1,12 @@
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const csvParser = require('csv-parser');
 const { parseStringPromise } = require('xml2js');
+
+// Helper to handle BGG's required wait times
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -22,103 +25,119 @@ module.exports = {
         const serverFilePath = path.join(__dirname, `server_${serverId}_board_games.csv`);
 
         if (!fs.existsSync(serverFilePath)) {
-            return interaction.reply(`No board game data found for this server. Users must set their BGG username first.`);
+            return interaction.reply({ content: `No board game data found for this server. Users must set their BGG username first.`, ephemeral: true });
         }
 
+        // 1. Read CSV to find the BGG Username
         const users = await new Promise((resolve) => {
             const results = [];
             fs.createReadStream(serverFilePath)
                 .pipe(csvParser())
-                .on('data', data => {
-                    data.discordId = data['Discord ID'.trim()] || data['discordId']?.trim();
-                    data.bggUsername = data['BGG Username'.trim()] || data['bggUsername']?.trim();
-                    results.push(data);
-                })
+                .on('data', data => results.push(data))
                 .on('end', () => resolve(results))
-                .on('error', error => {
-                    console.error("Error reading CSV:", error);
-                    resolve([]);
-                });
+                .on('error', () => resolve([]));
         });
 
-        const user = users.find(u => u.discordId === discordId);
-        if (!user) {
-            return interaction.reply(`${targetUser.username} has not set their BGG username.`);
+        // Robustly find the user (handling potential space issues in CSV headers)
+        const userEntry = users.find(u => {
+            const rowId = u['Discord ID'] || u['discordId'] || u['ID'];
+            return rowId?.trim() === discordId;
+        });
+
+        if (!userEntry) {
+            return interaction.reply({ content: `${targetUser.username} hasn't linked their BGG account yet.`, ephemeral: true });
         }
 
-        const username = user.bggUsername;
-        const ITEMS_PER_PAGE = 20;
+        const bggUsername = userEntry['BGG Username'] || userEntry['bggUsername'] || userEntry['Username'];
+        const ITEMS_PER_PAGE = 10;
 
         await interaction.deferReply();
 
         try {
-            const collectionResponse = await axios.get(`https://boardgamegeek.com/xmlapi2/collection?username=${username}&own=1`);
-            const collectionData = await parseStringPromise(collectionResponse.data);
+            let collectionData = null;
+            let retries = 0;
+            const maxRetries = 5;
 
-            if (!collectionData.items || !collectionData.items.item) {
-                return interaction.editReply(`No games found for user "${username}".`);
-            }
+            // 2. Fetch with BGG 202 "Processing" handling
+            while (retries < maxRetries) {
+                const response = await axios.get(`https://boardgamegeek.com/xmlapi2/collection?username=${encodeURIComponent(bggUsername)}&own=1`, {
+                    validateStatus: (status) => status === 200 || status === 202
+                });
 
-            const games = collectionData.items.item.map(item => item.name[0]._);
-
-            if (games.length === 0) {
-                return interaction.editReply(`No games found for user "${username}".`);
-            }
-
-            let currentPage = 0;
-
-            const generateEmbed = (page) => {
-                const start = page * ITEMS_PER_PAGE;
-                const end = start + ITEMS_PER_PAGE;
-                const pageGames = games.slice(start, end);
-                const embedContent = pageGames.map((game, index) => `${start + index + 1}. ${game}`).join('\n');
-
-                return {
-                    content: `**Games owned by ${username}**\n${embedContent}\n\nPage ${page + 1} of ${Math.ceil(games.length / ITEMS_PER_PAGE)}`,
-                    components: [
-                        new ActionRowBuilder().addComponents(
-                            new ButtonBuilder()
-                                .setCustomId('previous')
-                                .setLabel('⬅️ Previous')
-                                .setStyle(ButtonStyle.Primary)
-                                .setDisabled(page === 0),
-                            new ButtonBuilder()
-                                .setCustomId('next')
-                                .setLabel('➡️ Next')
-                                .setStyle(ButtonStyle.Primary)
-                                .setDisabled(end >= games.length)
-                        )
-                    ]
-                };
-            };
-
-            const initialEmbed = generateEmbed(currentPage);
-            const message = await interaction.editReply(initialEmbed);
-
-            const filter = (i) => i.user.id === interaction.user.id;
-            const collector = message.createMessageComponentCollector({ filter, time: 60000 });
-
-            collector.on('collect', async (buttonInteraction) => {
-                if (buttonInteraction.customId === 'next') {
-                    currentPage++;
-                } else if (buttonInteraction.customId === 'previous') {
-                    currentPage--;
+                if (response.status === 202) {
+                    retries++;
+                    await sleep(3000); // Wait 3 seconds for BGG to generate the XML
+                    continue;
                 }
 
-                const updatedEmbed = generateEmbed(currentPage);
-                await buttonInteraction.update(updatedEmbed);
-            });
+                collectionData = await parseStringPromise(response.data);
+                break;
+            }
 
-            collector.on('end', async () => {
-                const disabledComponents = initialEmbed.components[0].components.map(button =>
-                    button.setDisabled(true)
+            // 3. Validate response
+            if (!collectionData?.items?.item) {
+                return interaction.editReply(`No games found for BGG user "${bggUsername}". The profile might be private or empty.`);
+            }
+
+            // 4. Extract and Sort Names
+            const games = collectionData.items.item.map(item => {
+                const nameNode = item.name[0];
+                return (typeof nameNode === 'string') ? nameNode : nameNode._;
+            }).filter(n => n).sort();
+
+            let currentPage = 0;
+            const totalPages = Math.ceil(games.length / ITEMS_PER_PAGE);
+
+            // 5. Build Pagination System
+            const generatePage = (page) => {
+                const start = page * ITEMS_PER_PAGE;
+                const pageGames = games.slice(start, start + ITEMS_PER_PAGE);
+                const list = pageGames.map((g, i) => `**${start + i + 1}.** ${g}`).join('\n');
+
+                const embed = new EmbedBuilder()
+                    .setTitle(`${targetUser.username}'s Collection`)
+                    .setAuthor({ name: `BGG: ${bggUsername}` })
+                    .setDescription(list || "No games found.")
+                    .setColor(0x2F3136)
+                    .setFooter({ text: `Page ${page + 1} of ${totalPages} (${games.length} total games)` });
+
+                const buttons = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('prev')
+                        .setLabel('Previous')
+                        .setStyle(ButtonStyle.Secondary)
+                        .setDisabled(page === 0),
+                    new ButtonBuilder()
+                        .setCustomId('next')
+                        .setLabel('Next')
+                        .setStyle(ButtonStyle.Secondary)
+                        .setDisabled(page >= totalPages - 1)
                 );
 
-                await interaction.editReply({ components: [new ActionRowBuilder().addComponents(disabledComponents)] });
+                return { embeds: [embed], components: [buttons] };
+            };
+
+            const message = await interaction.editReply(generatePage(currentPage));
+
+            // 6. Interaction Collector
+            const collector = message.createMessageComponentCollector({ time: 60000 });
+
+            collector.on('collect', async i => {
+                if (i.user.id !== interaction.user.id) return i.reply({ content: "Run the command yourself to use buttons!", ephemeral: true });
+
+                if (i.customId === 'next') currentPage++;
+                else if (i.customId === 'prev') currentPage--;
+
+                await i.update(generatePage(currentPage));
             });
+
+            collector.on('end', () => {
+                interaction.editReply({ components: [] }).catch(() => {});
+            });
+
         } catch (error) {
-            console.error('Error fetching games from BGG:', error);
-            await interaction.editReply('An error occurred while fetching the game list. Please try again later.');
+            console.error(error);
+            await interaction.editReply("BGG's servers are a bit slow right now. Try again in a moment.");
         }
     },
 };

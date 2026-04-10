@@ -1,7 +1,10 @@
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 const { parseStringPromise } = require('xml2js');
 const config = require('../../config.json'); 
+
+// Helper function to pause execution
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -9,86 +12,104 @@ module.exports = {
         .setDescription('Lists games owned by club on BoardGameGeek.'),
     async execute(interaction) {
         const username = config.BGG_USERNAME;
-        const ITEMS_PER_PAGE = 20;
+        const ITEMS_PER_PAGE = 10; // Embeds look better with 10
 
         await interaction.deferReply();
 
         try {
-            // Fetch the user's collection from BGG API
-            const collectionResponse = await axios.get(`https://boardgamegeek.com/xmlapi2/collection?username=${username}&own=1`);
-            const collectionData = await parseStringPromise(collectionResponse.data);
+            let collectionData = null;
+            let retries = 0;
+            const maxRetries = 5;
 
-            // Check if the API response contains valid data
-            if (!collectionData.items || !collectionData.items.item) {
-                const errorMessage = collectionData.message || 'No games found or user does not exist.';
-                return interaction.editReply(`Error: ${errorMessage}`);
+            // 1. Fetching logic with 202 Retry Handling
+            while (retries < maxRetries) {
+                const response = await axios.get(`https://boardgamegeek.com/xmlapi2/collection?username=${username}&own=1`, {
+                    validateStatus: (status) => status === 200 || status === 202
+                });
+
+                if (response.status === 202) {
+                    retries++;
+                    // Wait 3 seconds before trying again
+                    await sleep(3000);
+                    continue;
+                }
+
+                collectionData = await parseStringPromise(response.data);
+                break;
             }
 
-            // Extract games from the response
-            const games = collectionData.items.item.map(item => item.name[0]._);
+            // 2. Error Checking
+            if (!collectionData || !collectionData.items || !collectionData.items.item) {
+                return interaction.editReply(`Could not find a collection for user "${username}". (BGG might be busy or the name is wrong).`);
+            }
+
+            // 3. Extract Game Names (Robustly)
+            const games = collectionData.items.item.map(item => {
+                const nameObj = item.name[0];
+                // BGG names in collections can be a string OR an object with a "_" property
+                return (typeof nameObj === 'string') ? nameObj : nameObj._;
+            }).filter(name => name).sort(); // Sort alphabetically
 
             if (games.length === 0) {
-                return interaction.editReply(`No games found for user "${username}".`);
+                return interaction.editReply(`The user "${username}" has no games marked as 'owned'.`);
             }
 
             let currentPage = 0;
+            const totalPages = Math.ceil(games.length / ITEMS_PER_PAGE);
 
-            // Helper function to generate the paginated embed
+            // 4. Generate Embed
             const generateEmbed = (page) => {
                 const start = page * ITEMS_PER_PAGE;
                 const end = start + ITEMS_PER_PAGE;
                 const pageGames = games.slice(start, end);
-                const embedContent = pageGames.map((game, index) => `${start + index + 1}. ${game}`).join('\n');
+                
+                const list = pageGames.map((game, i) => `**${start + i + 1}.** ${game}`).join('\n');
 
-                return {
-                    content: `**Games owned by Club**\n${embedContent}\n\nPage ${page + 1} of ${Math.ceil(games.length / ITEMS_PER_PAGE)}`,
-                    components: [
-                        new ActionRowBuilder().addComponents(
-                            new ButtonBuilder()
-                                .setCustomId('previous')
-                                .setLabel('⬅️ Previous')
-                                .setStyle(ButtonStyle.Primary)
-                                .setDisabled(page === 0),
-                            new ButtonBuilder()
-                                .setCustomId('next')
-                                .setLabel('➡️ Next')
-                                .setStyle(ButtonStyle.Primary)
-                                .setDisabled(end >= games.length)
-                        )
-                    ]
-                };
-            };
+                const embed = new EmbedBuilder()
+                    .setTitle(`Club Collection (${games.length} Games)`)
+                    .setDescription(list)
+                    .setColor(0x3f3a71) // Nice purple
+                    .setFooter({ text: `Page ${page + 1} of ${totalPages}` });
 
-            // Send the initial embed
-            const initialEmbed = generateEmbed(currentPage);
-            const message = await interaction.editReply(initialEmbed);
-
-            // Create a collector to handle button interactions
-            const filter = (i) => i.user.id === interaction.user.id;
-            const collector = message.createMessageComponentCollector({ filter, time: 60000 });
-
-            collector.on('collect', async (buttonInteraction) => {
-                if (buttonInteraction.customId === 'next') {
-                    currentPage++;
-                } else if (buttonInteraction.customId === 'previous') {
-                    currentPage--;
-                }
-
-                const updatedEmbed = generateEmbed(currentPage);
-                await buttonInteraction.update(updatedEmbed);
-            });
-
-            collector.on('end', async () => {
-                // Disable buttons after collector ends
-                const disabledComponents = initialEmbed.components[0].components.map(button =>
-                    button.setDisabled(true)
+                const buttons = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('prev')
+                        .setLabel('Previous')
+                        .setStyle(ButtonStyle.Secondary)
+                        .setDisabled(page === 0),
+                    new ButtonBuilder()
+                        .setCustomId('next')
+                        .setLabel('Next')
+                        .setStyle(ButtonStyle.Secondary)
+                        .setDisabled(page === totalPages - 1)
                 );
 
-                await interaction.editReply({ components: [new ActionRowBuilder().addComponents(disabledComponents)] });
+                return { embeds: [embed], components: [buttons] };
+            };
+
+            const message = await interaction.editReply(generateEmbed(currentPage));
+
+            // 5. Interaction Collector (Button Handling)
+            const collector = message.createMessageComponentCollector({ time: 120000 });
+
+            collector.on('collect', async i => {
+                if (i.user.id !== interaction.user.id) {
+                    return i.reply({ content: "Only the person who ran the command can flip pages!", ephemeral: true });
+                }
+
+                if (i.customId === 'next') currentPage++;
+                if (i.customId === 'prev') currentPage--;
+
+                await i.update(generateEmbed(currentPage));
             });
+
+            collector.on('end', () => {
+                interaction.editReply({ components: [] }).catch(() => {});
+            });
+
         } catch (error) {
-            console.error('Error fetching games from BGG:', error);
-            await interaction.editReply('An error occurred while fetching the game list. Please try again later.');
+            console.error('BGG Collection Error:', error);
+            await interaction.editReply('BGG is taking too long to respond. Please try again in 1 minute.');
         }
     },
 };
